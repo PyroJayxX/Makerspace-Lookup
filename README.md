@@ -69,12 +69,13 @@ All 7 questions pass (`node scripts/check.js` against the running app):
 - **Full markdown rendering.** The corpus only ever uses two markdown constructs (headings, bold). Rather than pull in a markdown renderer, `lib/ingest.js` strips both with a small regex at ingestion time.
 - **Multi-page / paginated results.** Not needed: the corpus is small enough (82 passages total) that returning every ranked match costs nothing, so there's no truncation to paginate around.
 - **Custom re-ranking.** Not asked for, and explicitly earns no extra credit per the brief, FTS5's own ranking already covers it.
+- **Live deployed link (optional per the brief).** Tried Vercel, but its read-only serverless filesystem doesn't fit SQLite. The proper fix (Turso) means rewriting the already tested data layer to an async client, which risks surfacing data-critical bugs.
 
 ## AI usage
 
 Claude Code (Sonnet 5) was used for most of the code and feature implementation, as I was directing every architecture decision through discussion rather than accepting defaults: stack choice (Next.js vs Express), database choice (SQLite vs Postgres/MySQL, and specifically why FTS5), the ingestion idempotency/reconciliation design, and the Docker approach (multi-stage, and specifically why not Next's `output: 'standalone'`).
 
-Testing the running app revealed several real issues:
+Testing the running app revealed several real issues that were fixed:
 
 - A stopword bug that made "no results" almost unreachable
 - A non-deterministic duplicate-file bug (`localeCompare` picking a 
