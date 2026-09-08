@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./corpus:/app/corpus:ro
+    environment:
+      - DB_PATH=/app/data/app.db
+      - CORPUS_DIR=/app/corpus
