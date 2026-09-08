@@ -21,7 +21,12 @@ pnpm dev                 # http://localhost:3000
 node scripts/check.js    # run the search check questions
 ```
 
-**Docker:** _(instructions to follow once the Docker setup is written and tested)_
+**Docker:**
+```bash
+docker compose up --build   # ingests automatically, then serves on http://localhost:3000
+node scripts/check.js       # from the host, run the search check questions against it
+```
+The database (`./data`) and corpus (`./corpus`, read-only) are bind-mounted into the container, so the database survives a restart and editing/deleting a corpus file on disk is picked up by re-running ingestion (`docker compose exec app node scripts/ingest.js`) without rebuilding the image.
 
 ## The Corpus
 
