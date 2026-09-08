@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type SubmitEvent } from "react";
 
 type SearchResult = {
   documentId: string;
@@ -12,88 +12,130 @@ type SearchResult = {
 
 type Status = "idle" | "loading" | "success" | "error";
 
+const DEBOUNCE_MS = 300;
+
 export default function Home() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [lastQuery, setLastQuery] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const abortRef = useRef<AbortController | null>(null);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    const trimmed = query.trim();
-    if (!trimmed) return;
+  async function runSearch(trimmed: string) {
+    // Cancel any in-flight request so a slow response for an earlier,
+    // shorter query can't resolve after a newer one and overwrite it
+    // with stale results.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     setStatus("loading");
 
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}`);
-      if (!res.ok) throw new Error(`Search failed (${res.status})`);
+      const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}`, {
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`Search didn't respond (${res.status}). Try again.`);
       const body = await res.json();
       setResults(body.results ?? []);
       setLastQuery(trimmed);
       setStatus("success");
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : "Something went wrong");
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Search didn't respond. Check your connection and try again.";
+      setErrorMessage(message);
       setStatus("error");
     }
   }
 
+  // Live search: debounced so it doesn't fire on every keystroke.
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      abortRef.current?.abort();
+      setStatus("idle");
+      setResults([]);
+      return;
+    }
+
+    const timeout = setTimeout(() => runSearch(trimmed), DEBOUNCE_MS);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  function handleSubmit(e: SubmitEvent) {
+    e.preventDefault();
+    const trimmed = query.trim();
+    if (trimmed) runSearch(trimmed);
+  }
+
   return (
-    <div className="flex flex-1 flex-col items-center bg-zinc-50 px-4 py-16 dark:bg-black">
-      <div className="w-full max-w-2xl">
-        <h1 className="mb-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
-          Makerspace Knowledge Base
-        </h1>
-        <p className="mb-6 text-sm text-zinc-500 dark:text-zinc-400">
-          Search machine manuals, safety guides, FAQs, and policies.
-        </p>
+    <div className="flex h-full min-h-0 flex-1 justify-center bg-surface">
+      <div className="flex h-full min-h-0 w-full max-w-2xl flex-col px-6 py-10">
+        <div className="shrink-0 border-b border-line pb-6">
+          <h1 className="font-display text-[2rem] leading-none font-black text-ink uppercase">
+            Makerspace Knowledge Base
+          </h1>
+          <p className="mt-2 text-[0.9rem] leading-snug text-ink-muted">
+            Search the machine manuals, safety guides, FAQs, and policies on file.
+          </p>
 
-        <form onSubmit={handleSubmit} className="flex gap-2">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="What materials are forbidden on the laser cutter?"
-            className="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-          />
-          <button
-            type="submit"
-            disabled={status === "loading"}
-            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
-          >
-            Search
-          </button>
-        </form>
+          <form onSubmit={handleSubmit} className="mt-6 flex items-end gap-4">
+            <label className="flex-1">
+              <span className="sr-only">Search</span>
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="What are you trying to find out?"
+                className="w-full border-b-2 border-ink bg-transparent pb-2 text-lg text-ink placeholder:text-ink-muted focus:border-signal focus:outline-none"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={status === "loading"}
+              className="shrink-0 border-b-2 border-signal pb-2 text-sm font-medium text-signal disabled:opacity-40"
+            >
+              Search
+            </button>
+          </form>
+        </div>
 
-        <div className="mt-6 space-y-3">
-          {status === "loading" && (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">Searching…</p>
+        <div className="results-scroll min-h-0 flex-1 overflow-y-auto">
+          {status === "idle" && (
+            <p className="pt-8 text-sm text-ink-muted">
+              Try a real question, like &ldquo;what materials are forbidden on the laser
+              cutter?&rdquo;
+            </p>
           )}
 
+          {status === "loading" && <p className="pt-8 text-sm text-ink-muted">Searching…</p>}
+
           {status === "error" && (
-            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+            <p className="mt-8 border-l-2 border-danger py-1 pl-3 text-sm text-danger">
               {errorMessage}
             </p>
           )}
 
           {status === "success" && results.length === 0 && (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              No results for &ldquo;{lastQuery}&rdquo;.
+            <p className="pt-8 text-sm text-ink-muted">
+              No matches for &ldquo;{lastQuery}&rdquo;. Try different words, or check the
+              spelling.
             </p>
           )}
 
           {status === "success" &&
             results.map((r, i) => (
-              <div
-                key={`${r.documentId}-${i}`}
-                className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
-              >
-                <p className="text-sm text-zinc-800 dark:text-zinc-200">{r.content}</p>
-                <div className="mt-2 flex flex-wrap gap-x-3 text-xs text-zinc-500 dark:text-zinc-400">
-                  <span>{r.title ?? "N/A"}</span>
-                  <span>·</span>
+              <div key={`${r.documentId}-${i}`} className="border-t border-line py-5 first:border-t-0">
+                <p className="text-[0.95rem] leading-relaxed text-ink">{r.content}</p>
+                <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-ink-muted">
+                  <span className="font-medium text-ink">{r.title ?? "N/A"}</span>
                   <span>{r.category ?? "N/A"}</span>
+                  <span className="font-mono text-[0.7rem]">{r.documentId}</span>
                 </div>
               </div>
             ))}
