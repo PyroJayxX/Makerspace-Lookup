@@ -2,7 +2,7 @@
 
 A small search app over a makerspace's accumulated machine manuals, safety guides, FAQs, and policies. Staff type a question or keywords and get back the most relevant passages with their source document.
 
-Built for a take-home assessment. Stack, database, ingestion design, docker approach was explicitly chosen/approved by me; implementation was done with AI assistance (Claude Code). Full breakdown in [AI usage](#ai-usage) once the build is complete.
+Built for a take-home assessment. Stack, database, ingestion design, and docker approach was explicitly chosen and approved by me; implementation was done with AI assistance (Claude Code). [See AI Usage](#ai-usage)
 
 ## Stack
 
@@ -13,14 +13,6 @@ Built for a take-home assessment. Stack, database, ingestion design, docker appr
 
 ## Setup and run
 
-**Local (pnpm):**
-```bash
-pnpm install
-node scripts/ingest.js   # ingest corpus/ into ./data/app.db
-pnpm dev                 # http://localhost:3000
-node scripts/check.js    # run the search check questions
-```
-
 **Docker:**
 ```bash
 docker compose up --build   # ingests automatically, then serves on http://localhost:3000
@@ -28,12 +20,21 @@ node scripts/check.js       # from the host, run the search check questions agai
 ```
 The database (`./data`) and corpus (`./corpus`, read-only) are bind-mounted into the container, so the database survives a restart and editing/deleting a corpus file on disk is picked up by re-running ingestion (`docker compose exec app node scripts/ingest.js`) without rebuilding the image.
 
+**Local Development:**
+```bash
+pnpm install
+node scripts/ingest.js   # ingest corpus/ into ./data/app.db
+pnpm dev                 # http://localhost:3000
+node scripts/check.js    # run the search check questions
+```
+
 ## The Corpus
 
 The provided 14-document corpus is deliberately mixed quality:
 
 - **Duplicate content under different filenames** - `woodworking_manual.md` and `woodworking_manual_final_v2.md` are byte-identical. The ingestion pipeline detects this by content hash and keeps only the alphabetically-first filename as the canonical document; the other is skipped and logged, so search doesn't return the same passage twice under two different source names.
 - **Missing metadata** - `kiln_firing_guide.md` and `cnc_router_notes.md` have no YAML frontmatter at all (no title/category/author). The frontmatter parser (`gray-matter`) tolerates this and just returns an empty object, so these documents get `NULL` metadata fields in the database rather than failing ingestion. The frontend renders `NULL` as "N/A" instead of breaking.
+- **Messy informal notes** - `cnc_router_notes.md` and `dust_collection_maintenance.md` are written as casual shorthand (lowercase, "w/", run-on sentences, "??", ALL-CAPS warnings) rather than clean prose. No special handling needed: ingestion splits body text into passages the same way regardless of formality.
 
 ## Idempotency 
 
@@ -74,7 +75,7 @@ All 7 questions pass (`node scripts/check.js` against the running app):
 
 ## What I cut and why
 
-- **Click-through to view the full source document.** The brief only asks for passage + title + category in the results list. Adding this would mean a new route, safely mapping an id back to a file without a path-traversal risk, and a rendering choice
+- **Click-through to view the full source document.** The brief only asks for passage + title + category in the results list. Adding this would mean a new route, safely mapping an id back to a file without a path-traversal risk, and a rendering choice.
 - **"Integration hooks" for the bigger system.** Considered adding placeholder click handlers/fields anticipating future extension, but that means guessing at requirements that don't exist yet. Kept the code simple and well-separated instead, which is what actually makes it easy to extend later.
 - **Full markdown rendering.** The corpus only ever uses two markdown constructs (headings, bold). Rather than pull in a markdown renderer, `lib/ingest.js` strips both with a small regex at ingestion time.
 - **Multi-page / paginated results.** Not needed: the corpus is small enough (82 passages total) that returning every ranked match costs nothing, so there's no truncation to paginate around.
@@ -82,6 +83,6 @@ All 7 questions pass (`node scripts/check.js` against the running app):
 
 ## AI usage
 
-Claude Code (Sonnet 5) was used on most of code and feature implementation, as I was directing every architecture decision through discussion rather than accepting defaults: stack choice (NextJS vs Express), database choice (SQLite vs Postgres/MySQL, and specifically why FTS5), the ingestion idempotency/reconciliation design, and the Docker approach (multi-stage, and specifically why not Next's `output: 'standalone'`).
+Claude Code (Sonnet 5) was used for most of the code and feature implementation, as I was directing every architecture decision through discussion rather than accepting defaults: stack choice (Next.js vs Express), database choice (SQLite vs Postgres/MySQL, and specifically why FTS5), the ingestion idempotency/reconciliation design, and the Docker approach (multi-stage, and specifically why not Next's `output: 'standalone'`).
 
 Testing the running app, not just reading the code, caught two real bugs before submission: a stopword-matching bug that made "no results" nearly unreachable, and a `localeCompare`-based duplicate-file bug that made canonical-filename selection non-deterministic across environments (both covered above). I reviewed and adjusted the generated code throughout rather than accepting it as-is.
