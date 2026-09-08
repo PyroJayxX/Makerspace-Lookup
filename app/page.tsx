@@ -135,6 +135,7 @@ export default function Home() {
                 <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-ink-muted">
                   <span className="font-medium text-ink">{r.title ?? "N/A"}</span>
                   <span>{r.category ?? "N/A"}</span>
+                  <span>{r.author ?? "N/A"}</span>
                   <span className="font-mono text-[0.7rem]">{r.documentId}</span>
                 </div>
               </div>
