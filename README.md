@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Makerspace Knowledge Base
 
-## Getting Started
+A small search app over a makerspace's accumulated machine manuals, safety guides, FAQs, and policies. Staff type a question or keywords and get back the most relevant passages with their source document.
 
-First, run the development server:
+Built for a take-home assessment. Stack, database, ingestion design, docker approach was discussed and explicitly chosen/approved by me; implementation was done with AI assistance (Claude Code). Full breakdown in [AI usage](#ai-usage) once the build is complete.
 
+## Stack
+
+- **Next.js (App Router) + TypeScript** - one process serves both the frontend and the API, which keeps run-ability to a single command.
+- **SQLite via `better-sqlite3` (FTS5 for full-text search)** - no separate DB server, so "survives a restart" is just one file on a volume, and no second service in Docker. Not Node's built-in `node:sqlite`: confirmed it ships without FTS5, so it can't do full-text search.
+- **Ingestion/check scripts as plain CommonJS JavaScript**, not TypeScript - they run with plain `node`, no `tsx`/`ts-node` needed in or out of Docker.
+- **Docker: multi-stage, without Next's `output: 'standalone'`.** Standalone's file-tracing can miss native addons like `better-sqlite3`'s compiled binary. Simpler than working around that: skip it, and have the final stage run its own normal `pnpm install --prod` instead.
+
+## Setup and run
+
+**Local (pnpm):**
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+node scripts/ingest.js   # ingest corpus/ into ./data/app.db
+pnpm dev                 # http://localhost:3000
+node scripts/check.js    # run the search check questions
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+**Docker:** _(instructions to follow once the Docker setup is written and tested)_
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## The Corpus
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The provided 14-document corpus is deliberately mixed quality:
 
-## Learn More
+- **Duplicate content under different filenames** - `woodworking_manual.md` and `woodworking_manual_final_v2.md` are byte-identical. The ingestion pipeline detects this by content hash and keeps only the alphabetically-first filename as the canonical document; the other is skipped and logged, so search doesn't return the same passage twice under two different source names.
+- **Missing metadata** - `kiln_firing_guide.md` and `cnc_router_notes.md` have no YAML frontmatter at all (no title/category/author). The frontmatter parser (`gray-matter`) tolerates this and just returns an empty object, so these documents get `NULL` metadata fields in the database rather than failing ingestion. The frontend renders `NULL` as "N/A" instead of breaking.
 
-To learn more about Next.js, take a look at the following resources:
+Per the brief, the corpus files themselves are untouched — all of this is handled in the ingestion pipeline, not by editing the source markdown.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Idempotency 
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Ingestion (`lib/ingest.js`) reconciles the database to match whatever is currently in `corpus/`, using a hash of each file's raw content:
 
-## Deploy on Vercel
+1. Every file is hashed. Files with identical hashes under different names are deduped (see above), keeping one canonical filename.
+2. For each canonical file, compare its hash against what's stored for that filename in the database:
+   - Not present yet → insert the document and its passages.
+   - Present with the same hash → do nothing.
+   - Present with a different hash → delete its old passages, re-insert fresh ones, update the stored hash.
+3. Any document in the database whose filename is no longer among the current canonical files (deleted from disk, or newly demoted as a duplicate) is deleted along with its passages.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+This one rule handles all three required scenarios with a single mechanism: running ingestion twice in a row changes nothing (every file's hash already matches what's stored, so every file hits the "do nothing" branch); deleting a source file and re-ingesting removes it (step 3); and adding a new file just falls into the "not present yet" branch. There's no separate "first run" vs. "later run" code path, every run does the same reconcile-to-match-disk pass.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Search check results
+
+_(to follow once `scripts/check.js` has been run against the finished app)_
+
+## What I cut and why
+
+_(to follow: will reflect what's actually cut once the build is closer to done)_
+
+## AI usage
+
+_(to follow: full breakdown of tools, what for, and what I wrote/reworked myself, once the build is complete)_
