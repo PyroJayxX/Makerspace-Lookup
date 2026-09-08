@@ -1,0 +1,30 @@
+[
+  {
+    "question": "What materials are forbidden on the laser cutter?",
+    "expectedDocumentId": "laser_cutter_safety.md"
+  },
+  {
+    "question": "What temperature should I set my soldering iron to?",
+    "expectedDocumentId": "electronics_soldering_faq.md"
+  },
+  {
+    "question": "How many hours per week can I book a single machine?",
+    "expectedDocumentId": "equipment_booking_policy.md"
+  },
+  {
+    "question": "What should I do for a chemical splash in the eye?",
+    "expectedDocumentId": "first_aid_procedures.md"
+  },
+  {
+    "question": "What is the maximum wall thickness allowed for kiln firing?",
+    "expectedDocumentId": "kiln_firing_guide.md"
+  },
+  {
+    "question": "Are push sticks mandatory for narrow rip cuts on the table saw?",
+    "expectedDocumentId": "woodworking_manual.md"
+  },
+  {
+    "question": "What is the wifi password for the makerspace?",
+    "expectedDocumentId": null
+  }
+]
