@@ -16,17 +16,8 @@ Built for a take-home assessment. Stack, database, ingestion design, and docker 
 **Docker:**
 ```bash
 docker compose up --build   # ingests automatically, then serves on http://localhost:3000
-node scripts/check.js       # from the host, run the search check questions against it
 ```
 The database (`./data`) and corpus (`./corpus`, read-only) are bind-mounted into the container, so the database survives a restart and editing/deleting a corpus file on disk is picked up by re-running ingestion (`docker compose exec app node scripts/ingest.js`) without rebuilding the image.
-
-**Local Development:**
-```bash
-pnpm install
-node scripts/ingest.js   # ingest corpus/ into ./data/app.db
-pnpm dev                 # http://localhost:3000
-node scripts/check.js    # run the search check questions
-```
 
 ## The Corpus
 
@@ -53,9 +44,7 @@ The corpus is also pinned to LF line endings via `.gitattributes`. Without it, W
 
 ## Search
 
-`lib/search.js` builds an FTS5 query: each query word becomes a prefix match, OR'd together, ranked by FTS5's built-in relevance score.
-
-Common words (the, is, what, for, ...) are filtered out before matching. Without this, OR-ing every word together meant "the"/"what" alone matched 68-71 of the corpus's 82 total passages regardless of the actual question, making honest "no results" responses nearly unreachable. Verified empirically before and after the fix.
+`lib/search.js` builds an FTS5 prefix-match query, OR'ing the query's content words together (common words like "the"/"what" are filtered out first, otherwise they'd match nearly every passage) and ranking by FTS5's built-in relevance score. Each passage is also indexed with its own document's title as searchable-but-hidden context, since a passage split out of its document otherwise loses the words that make it findable by machine name. Passages that are just a document's title with no content are excluded from indexing.
 
 ## Search check results
 
@@ -85,4 +74,23 @@ All 7 questions pass (`node scripts/check.js` against the running app):
 
 Claude Code (Sonnet 5) was used for most of the code and feature implementation, as I was directing every architecture decision through discussion rather than accepting defaults: stack choice (Next.js vs Express), database choice (SQLite vs Postgres/MySQL, and specifically why FTS5), the ingestion idempotency/reconciliation design, and the Docker approach (multi-stage, and specifically why not Next's `output: 'standalone'`).
 
-Testing the running app, not just reading the code, caught two real bugs before submission: a stopword-matching bug that made "no results" nearly unreachable, and a `localeCompare`-based duplicate-file bug that made canonical-filename selection non-deterministic across environments (both covered above). I reviewed and adjusted the generated code throughout rather than accepting it as-is.
+Testing the running app revealed several real issues:
+
+- A stopword bug that made "no results" almost unreachable
+- A non-deterministic duplicate-file bug (`localeCompare` picking a 
+  different "canonical" file depending on environment)
+- A ranking bug where passages lost context once split apart
+
+(the duplicate-file bug is detailed in [Idempotency](#idempotency) above; the stopword and ranking bugs are detailed in [Search](#search) above)
+
+I made Claude Re-read the brief closely and it caught one more gap: it requires the API to 
+clearly say "no match," and mine only implied that with an empty array; 
+so I fixed it to return an explicit message.
+
+I also thought about whether the idempotency approach would hold up on a 
+different machine, which isn't something the brief asks about directly. 
+That's how I caught a cross-machine line-ending risk (CRLF vs LF) that 
+could silently change the content hash the whole approach depends on.
+
+I reviewed and adjusted the generated code throughout rather than 
+accepting it as-is.
