@@ -48,6 +48,8 @@ Ingestion (`lib/ingest.js`) reconciles the database to match whatever is current
 
 This one rule handles all three required scenarios with a single mechanism: running ingestion twice in a row changes nothing (every file's hash already matches what's stored, so every file hits the "do nothing" branch); deleting a source file and re-ingesting removes it (step 3); and adding a new file just falls into the "not present yet" branch. There's no separate "first run" vs. "later run" code path, every run does the same reconcile-to-match-disk pass.
 
+The corpus is also pinned to LF line endings via `.gitattributes`. Without it, Windows' default `core.autocrlf` behavior could check the same files out with CRLF on a different machine, silently changing the hash this whole mechanism depends on.
+
 ## Search
 
 `lib/search.js` builds an FTS5 query: each query word becomes a prefix match, OR'd together, ranked by FTS5's built-in relevance score.
