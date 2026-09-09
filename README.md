@@ -16,6 +16,7 @@ Built for a take-home assessment. Stack, database, ingestion design, and docker 
 **Docker:**
 ```bash
 docker compose up --build   # ingests automatically, then serves on http://localhost:3000
+node scripts/check.js       # from the host, run the search check questions against it
 ```
 The database (`./data`) and corpus (`./corpus`, read-only) are bind-mounted into the container, so the database survives a restart and editing/deleting a corpus file on disk is picked up by re-running ingestion (`docker compose exec app node scripts/ingest.js`) without rebuilding the image.
 
@@ -29,22 +30,30 @@ The provided 14-document corpus is deliberately mixed quality:
 
 ## Idempotency 
 
-Ingestion (`lib/ingest.js`) reconciles the database to match whatever is currently in `corpus/`, using a hash of each file's raw content:
+To achieve idempotency, the ingestion script checks each file in the `corpus/` folder and matches its hash to what's currently stored in the Database (SQLite file).
 
-1. Every file is hashed. Files with identical hashes under different names are deduped (see above), keeping one canonical filename.
-2. For each canonical file, compare its hash against what's stored for that filename in the database:
-   - Not present yet - insert the document and its passages.
-   - Present with the same hash - do nothing.
-   - Present with a different hash - delete its old passages, re-insert fresh ones, update the stored hash.
-3. Any document in the database whose filename is no longer among the current canonical files (deleted from disk, or newly demoted as a duplicate) is deleted along with its passages.
+The flow is as follows:
+1. The ingestion script hashes each file, and files with identical hashes under different names are dropped (see above), to ensure no dupes.
+2. For each file, its hash is compared against what's already stored for that filename in the database and acts accordingly on different cases:
+  - A. Filename is not present yet: Insert the document and its passages.
+  - B. Filename is already present and stored with the same hash: Do nothing
+  - C. Filename is already present but with a different hash: Delete the old passages, re-insert the new ones, and update the stored hash.
+3. Any document in the database whose filename is no longer among the current files (deleted from disk, or newly demoted as a duplicate) is deleted along with its passages.
 
-This one rule handles all three required scenarios with a single mechanism: running ingestion twice in a row changes nothing (every file's hash already matches what's stored, so every file hits the "do nothing" branch); deleting a source file and re-ingesting removes it (step 3); and adding a new file just falls into the "not present yet" branch. There's no separate "first run" vs. "later run" code path, every run does the same reconcile-to-match-disk pass.
+This way, reingesting multiple times in a row does not create duplicated passages because of rule 2B, and any filename that is no longer in the `corpus/` folder is gone upon reingestion due to rule 3; therefore satisfying the critical requirements.
 
-The corpus is also pinned to LF line endings via `.gitattributes`. Without it, Windows' default `core.autocrlf` behavior could check the same files out with CRLF on a different machine, silently changing the hash this whole mechanism depends on.
+### Making this deterministic across machines
+
+- Picking the canonical file (step 1) uses plain string comparison, not `localeCompare`: an earlier version used `localeCompare`, which led to a logic error that picks `woodworking_manual_final_v2.md` over the plain filename, confirmed via `"woodworking_manual.md".localeCompare("woodworking_manual_final_v2.md")` returning `1` instead of the expected `-1`.
+- The corpus is also pinned to LF line endings via `.gitattributes`. Without it, Windows' default `core.autocrlf` behavior could check the same files out with CRLF on a different machine, silently changing the hash this whole mechanism depends on.
 
 ## Search
 
-`lib/search.js` builds an FTS5 prefix-match query, OR'ing the query's content words together (common words like "the"/"what" are filtered out first, otherwise they'd match nearly every passage) and ranking by FTS5's built-in relevance score. Each passage is also indexed with its own document's title as searchable-but-hidden context, since a passage split out of its document otherwise loses the words that make it findable by machine name. Passages that are just a document's title with no content are excluded from indexing.
+- **Query matching**: `lib/search.js` builds an FTS5 prefix-match query; each content word OR'd together, ranked by FTS5's built-in relevance score. Common words ("the," "what," etc.) are filtered out first to avoid matching with every single passages.
+- **Title as search context**: passages can also be found by words in their document's title, not just their own text. A passage like "Forbidden materials..." doesn't contain "laser" or "cutter" itself, but its document's title does ("Laser Cutter Safety and Materials"), so it's still found by those words, without the title text being repeated in what's shown to the user.
+- **Title-only passages excluded**: a passage that's just a document's title with no content is dropped from indexing entirely, since it's pure duplication of metadata already shown in the UI, not real content.
+
+Verified against a real query: "what materials are forbidden on the laser cutter?" ranked the correct passage 4th before the last two fixes above, 1st after.
 
 ## Search check results
 
@@ -61,6 +70,8 @@ All 7 questions pass (`node scripts/check.js` against the running app):
 
 7/7 passed
 ```
+
+Before the stopword fix described in [Search](#search) above, the last question "What is the wifi password..." returned 68 results instead of the expected zero.
 
 ## What I cut and why
 
